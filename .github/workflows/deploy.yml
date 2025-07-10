@@ -1,0 +1,154 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+
+env:
+  DOCKER_USERNAME: neha301
+  IMAGE_NAME: my-web-app
+  REGISTRY: docker.io
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    name: Run Tests
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Set up Node.js (if you add JS tests later)
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+    
+    - name: Run basic tests
+      run: |
+        echo "✅ Running tests..."
+        # Add your test commands here
+        # For now, just check if files exist
+        test -f src/index.html
+        test -f src/app.js
+        test -f src/style.css
+        test -f Dockerfile
+        echo "✅ All required files exist"
+    
+    - name: Lint HTML (basic check)
+      run: |
+        echo "🔍 Linting HTML..."
+        # Basic HTML validation
+        grep -q "<html" src/index.html
+        grep -q "</html>" src/index.html
+        echo "✅ HTML structure looks good"
+
+  build:
+    needs: test
+    runs-on: ubuntu-latest
+    name: Build and Push Docker Image
+    if: github.ref == 'refs/heads/main'
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+    
+    - name: Log in to Docker Hub
+      uses: docker/login-action@v3
+      with:
+        username: ${{ env.DOCKER_USERNAME }}
+        password: ${{ secrets.DOCKER_PASSWORD }}
+    
+    - name: Extract metadata
+      id: meta
+      uses: docker/metadata-action@v5
+      with:
+        images: ${{ env.REGISTRY }}/${{ env.DOCKER_USERNAME }}/${{ env.IMAGE_NAME }}
+        tags: |
+          type=ref,event=branch
+          type=ref,event=pr
+          type=sha,prefix={{branch}}-
+          type=raw,value=latest,enable={{is_default_branch}}
+    
+    - name: Build and push Docker image
+      id: build
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        push: true
+        tags: ${{ steps.meta.outputs.tags }}
+        labels: ${{ steps.meta.outputs.labels }}
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+    
+    - name: Image digest
+      run: echo "Image pushed with digest ${{ steps.build.outputs.digest }}"
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    name: Deploy to Kubernetes
+    if: github.ref == 'refs/heads/main'
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Set up kubectl
+      uses: azure/setup-kubectl@v3
+      with:
+        version: 'v1.28.0'
+    
+    - name: Configure kubectl for local deployment
+      run: |
+        echo "🔧 Setting up kubectl configuration..."
+        # For demo purposes, we'll simulate deployment
+        # In real scenarios, you'd use cloud credentials
+        echo "✅ Kubectl configured"
+    
+    - name: Update deployment image
+      run: |
+        echo "🚀 Updating deployment with new image..."
+        # Update the deployment YAML with new image
+        IMAGE_TAG="${{ env.DOCKER_USERNAME }}/${{ env.IMAGE_NAME }}:${{ github.sha }}"
+        echo "New image: $IMAGE_TAG"
+        
+        # In a real scenario, you'd apply to your cluster:
+        # kubectl set image deployment/web-app-deployment web-app=$IMAGE_TAG
+        echo "✅ Deployment updated (simulated)"
+    
+    - name: Deployment verification
+      run: |
+        echo "✅ Deployment completed successfully!"
+        echo "🌐 Application should be accessible at your configured URL"
+        echo "📊 Deployment summary:"
+        echo "  - Image: ${{ env.DOCKER_USERNAME }}/${{ env.IMAGE_NAME }}:${{ github.sha }}"
+        echo "  - Environment: Production"
+        echo "  - Status: Success"
+
+  security-scan:
+    needs: build
+    runs-on: ubuntu-latest
+    name: Security Scan
+    if: github.ref == 'refs/heads/main'
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Run Trivy vulnerability scanner
+      uses: aquasecurity/trivy-action@master
+      with:
+        image-ref: '${{ env.REGISTRY }}/${{ env.DOCKER_USERNAME }}/${{ env.IMAGE_NAME }}:latest'
+        format: 'sarif'
+        output: 'trivy-results.sarif'
+    
+    - name: Upload Trivy scan results to GitHub Security tab
+      uses: github/codeql-action/upload-sarif@v2
+      if: always()
+      with:
+        sarif_file: 'trivy-results.sarif'

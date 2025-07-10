@@ -40,10 +40,6 @@ docker run -p 8080:8080 my-web-app
   - Runs smoke tests
   - Performs security scanning
 
-## Secrets Required
-- `DOCKER_USERNAME`, `DOCKER_PASSWORD` (for Docker registry)
-- `KUBE_CONFIG` (base64-encoded kubeconfig for cluster access)
-
 ---
 
 **Adjust commands as needed for your actual tech stack.** 
